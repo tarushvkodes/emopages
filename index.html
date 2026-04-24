@@ -86,7 +86,7 @@
       const statusEl = () => document.getElementById("status");
       const video = document.getElementById("webcam");
       const canvas = document.getElementById("overlay");
-      const ctx = canvas.getContext("2d");
+      const ctx = canvas.getContext("2d", { alpha: true, willReadFrequently: false });
 
       const FACE_MODEL_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/";
       const HAND_MODEL_URL =
@@ -104,9 +104,66 @@
       let lastHandAt = 0;
       let cachedFaces = [];
       let cachedHands = [];
+      let perfProfile = null;
+      let lastRenderAt = 0;
+      let faceDetectorOptions = null;
+      let maxFaces = 8;
 
       function setStatus(msg) {
         statusEl().textContent = msg;
+      }
+
+      function buildPerformanceProfile() {
+        const ua = navigator.userAgent.toLowerCase();
+        const cores = navigator.hardwareConcurrency || 4;
+        const mem = navigator.deviceMemory || 4;
+        const isiPad = /ipad/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+        const lowPower = /jetson|armv7|aarch64/.test(ua) || cores <= 4 || mem <= 4;
+        const highPower = cores >= 10 && mem >= 8;
+
+        if (lowPower) {
+          return {
+            name: "low-power",
+            cameraWidth: 640,
+            cameraHeight: 480,
+            renderIntervalMs: 50,
+            faceIntervalMs: 320,
+            handIntervalMs: 160,
+            faceInputSize: 224,
+            faceScoreThreshold: 0.5,
+            maxFaces: 6,
+            maxHands: 2,
+            compactLabels: true
+          };
+        }
+        if (isiPad || highPower) {
+          return {
+            name: "high-performance",
+            cameraWidth: 1280,
+            cameraHeight: 720,
+            renderIntervalMs: 33,
+            faceIntervalMs: 170,
+            handIntervalMs: 90,
+            faceInputSize: 320,
+            faceScoreThreshold: 0.45,
+            maxFaces: 12,
+            maxHands: 4,
+            compactLabels: false
+          };
+        }
+        return {
+          name: "balanced",
+          cameraWidth: 960,
+          cameraHeight: 540,
+          renderIntervalMs: 40,
+          faceIntervalMs: 220,
+          handIntervalMs: 120,
+          faceInputSize: 256,
+          faceScoreThreshold: 0.48,
+          maxFaces: 8,
+          maxHands: 3,
+          compactLabels: false
+        };
       }
 
       function resizeCanvasToVideo() {
@@ -224,20 +281,23 @@
         );
         handLandmarker = await HandLandmarker.createFromOptions(vision, {
           baseOptions: { modelAssetPath: HAND_MODEL_URL },
-          numHands: 2,
+          numHands: perfProfile.maxHands,
           runningMode: "VIDEO"
         });
       }
 
       async function detectFaces(nowMs) {
-        if (nowMs - lastFaceAt < 180) return cachedFaces;
+        if (nowMs - lastFaceAt < perfProfile.faceIntervalMs) return cachedFaces;
         lastFaceAt = nowMs;
         const detections = await faceapi
-          .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
+          .detectAllFaces(video, faceDetectorOptions)
           .withAgeAndGender()
           .withFaceExpressions();
 
-        const prepared = detections.map((d) => ({
+        const prepared = detections
+          .sort((a, b) => (b.detection.score || 0) - (a.detection.score || 0))
+          .slice(0, maxFaces)
+          .map((d) => ({
           box: {
             x: d.detection.box.x,
             y: d.detection.box.y,
@@ -246,15 +306,22 @@
           },
           age: d.age,
           emotion: bestEmotion(d.expressions)
-        }));
-        faceTracks = trackDetections(prepared, faceTracks, { get value() { return nextFaceId; }, set value(v) { nextFaceId = v; } });
+          }));
+        faceTracks = trackDetections(prepared, faceTracks, {
+          get value() {
+            return nextFaceId;
+          },
+          set value(v) {
+            nextFaceId = v;
+          }
+        });
         cachedFaces = faceTracks;
         return cachedFaces;
       }
 
       async function detectHands(nowMs) {
         if (!handLandmarker) return [];
-        if (nowMs - lastHandAt < 90) return cachedHands;
+        if (nowMs - lastHandAt < perfProfile.handIntervalMs) return cachedHands;
         lastHandAt = nowMs;
         const res = handLandmarker.detectForVideo(video, nowMs);
         if (!res.landmarks?.length) {
@@ -262,7 +329,7 @@
           cachedHands = [];
           return cachedHands;
         }
-        const prepared = res.landmarks.map((landmarks, idx) => {
+        const prepared = res.landmarks.slice(0, perfProfile.maxHands).map((landmarks, idx) => {
           const xs = landmarks.map((p) => p.x * canvas.width);
           const ys = landmarks.map((p) => p.y * canvas.height);
           const minX = Math.max(0, Math.min(...xs));
@@ -276,7 +343,14 @@
             handedness
           };
         });
-        handTracks = trackDetections(prepared, handTracks, { get value() { return nextHandId; }, set value(v) { nextHandId = v; } });
+        handTracks = trackDetections(prepared, handTracks, {
+          get value() {
+            return nextHandId;
+          },
+          set value(v) {
+            nextHandId = v;
+          }
+        });
         cachedHands = handTracks;
         return cachedHands;
       }
@@ -289,7 +363,9 @@
           drawLabel(
             face.box.x,
             face.box.y + face.box.h + 6,
-            [`Face #${face.id}`, `Age: ${ageRange(face.age)}`, `Mood: ${face.emotion}`],
+            perfProfile.compactLabels
+              ? [`Age: ${ageRange(face.age)}`, `Mood: ${face.emotion}`]
+              : [`Face #${face.id}`, `Age: ${ageRange(face.age)}`, `Mood: ${face.emotion}`],
             "#ffffff"
           );
         }
@@ -299,7 +375,9 @@
           drawLabel(
             hand.box.x,
             Math.max(0, hand.box.y - 70),
-            [`Hand #${hand.id}`, `${hand.handedness}`, `Fingers: ${hand.fingers}`],
+            perfProfile.compactLabels
+              ? [`Fingers: ${hand.fingers}`]
+              : [`Hand #${hand.id}`, `${hand.handedness}`, `Fingers: ${hand.fingers}`],
             "#ffffff"
           );
         }
@@ -308,6 +386,11 @@
       async function renderLoop() {
         if (!processing || !videoReady) return;
         const now = performance.now();
+        if (now - lastRenderAt < perfProfile.renderIntervalMs) {
+          rafId = requestAnimationFrame(renderLoop);
+          return;
+        }
+        lastRenderAt = now;
         const faces = await detectFaces(now);
         const hands = await detectHands(now);
         drawScene(faces, hands);
@@ -316,9 +399,19 @@
 
       async function start() {
         try {
+          perfProfile = buildPerformanceProfile();
+          maxFaces = perfProfile.maxFaces;
+          faceDetectorOptions = new faceapi.TinyFaceDetectorOptions({
+            inputSize: perfProfile.faceInputSize,
+            scoreThreshold: perfProfile.faceScoreThreshold
+          });
           setStatus("Requesting camera...");
           const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+            video: {
+              facingMode: "user",
+              width: { ideal: perfProfile.cameraWidth },
+              height: { ideal: perfProfile.cameraHeight }
+            },
             audio: false
           });
           video.srcObject = stream;
@@ -326,7 +419,7 @@
           resizeCanvasToVideo();
           videoReady = true;
           await loadModels();
-          setStatus("Running detection...");
+          setStatus(`Running detection (${perfProfile.name})...`);
           processing = true;
           if (rafId) cancelAnimationFrame(rafId);
           rafId = requestAnimationFrame(renderLoop);

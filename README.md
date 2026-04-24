@@ -31,3 +31,19 @@ This repository uses a static `index.html`, so it can be served directly by GitH
 - Camera permission is required.
 - Performance depends on device/browser capabilities.
 - On iPad/iOS Safari, tap **Start Camera** to begin.
+- The app auto-selects a runtime profile (`high-performance`, `balanced`, `low-power`) to keep sustained performance stable.
+- Multi-person groups are supported (multiple faces and hands in-frame are tracked at the same time).
+
+## Performance behavior
+
+- Adaptive camera resolution by device class
+- Frame pacing to prevent thermal/CPU runaway
+- Tuned face/hand detection intervals
+- Detection caps to keep low-power hardware responsive
+
+This is tuned to run well on:
+
+- M4 iPad Pro
+- M5 MacBook Pro
+- Nvidia Jetson Nano (low-power profile)
+- Windows 11 i9 + RTX 4060
