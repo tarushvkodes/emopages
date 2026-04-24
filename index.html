@@ -121,6 +121,10 @@
         statusEl().textContent = msg;
       }
 
+      function previewStageEl() {
+        return document.getElementById("previewStage");
+      }
+
       function getFullscreenElement() {
         return (
           document.fullscreenElement ||
@@ -132,7 +136,7 @@
       }
 
       function isPreviewFullscreen() {
-        return Boolean(getFullscreenElement());
+        return getFullscreenElement() === previewStageEl();
       }
 
       async function requestPreviewFullscreen(stage) {
@@ -182,7 +186,11 @@
       }
 
       async function toggleFullscreenPreview() {
-        const stage = document.getElementById("previewStage");
+        const stage = previewStageEl();
+        if (!stage) {
+          setStatus("Preview stage is unavailable.");
+          return;
+        }
         try {
           if (isPreviewFullscreen()) {
             const exited = await exitPreviewFullscreen();
