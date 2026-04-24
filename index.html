@@ -38,6 +38,12 @@
         margin-bottom: 10px;
       }
 
+      .toolbar-actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
       .status {
         font-size: 0.95rem;
         opacity: 0.9;
@@ -113,6 +119,94 @@
 
       function setStatus(msg) {
         statusEl().textContent = msg;
+      }
+
+      function previewStageEl() {
+        return document.getElementById("previewStage");
+      }
+
+      function getFullscreenElement() {
+        return (
+          document.fullscreenElement ||
+          document.webkitFullscreenElement ||
+          document.mozFullScreenElement ||
+          document.msFullscreenElement ||
+          null
+        );
+      }
+
+      function isPreviewFullscreen() {
+        return getFullscreenElement() === previewStageEl();
+      }
+
+      async function requestPreviewFullscreen(stage) {
+        if (stage.requestFullscreen) {
+          await stage.requestFullscreen();
+          return true;
+        }
+        if (stage.webkitRequestFullscreen) {
+          stage.webkitRequestFullscreen();
+          return true;
+        }
+        if (stage.mozRequestFullScreen) {
+          stage.mozRequestFullScreen();
+          return true;
+        }
+        if (stage.msRequestFullscreen) {
+          stage.msRequestFullscreen();
+          return true;
+        }
+        return false;
+      }
+
+      async function exitPreviewFullscreen() {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+          return true;
+        }
+        if (document.webkitExitFullscreen) {
+          document.webkitExitFullscreen();
+          return true;
+        }
+        if (document.mozCancelFullScreen) {
+          document.mozCancelFullScreen();
+          return true;
+        }
+        if (document.msExitFullscreen) {
+          document.msExitFullscreen();
+          return true;
+        }
+        return false;
+      }
+
+      function updateFullscreenButtonLabel() {
+        const btn = document.getElementById("fullscreenBtn");
+        if (!btn) return;
+        btn.textContent = isPreviewFullscreen() ? "Exit Fullscreen" : "Fullscreen";
+      }
+
+      async function toggleFullscreenPreview() {
+        const stage = previewStageEl();
+        if (!stage) {
+          setStatus("Preview stage is unavailable.");
+          return;
+        }
+        try {
+          if (isPreviewFullscreen()) {
+            const exited = await exitPreviewFullscreen();
+            if (!exited) {
+              setStatus("Fullscreen is not supported in this browser.");
+            }
+          } else {
+            const entered = await requestPreviewFullscreen(stage);
+            if (!entered) {
+              setStatus("Fullscreen is not supported in this browser.");
+            }
+          }
+        } catch (err) {
+          console.error("Fullscreen toggle failed:", err);
+          setStatus("Unable to toggle fullscreen.");
+        }
       }
 
       function buildPerformanceProfile() {
@@ -268,13 +362,18 @@
         const height = lines.length * lineH + pad * 2;
         const px = Math.max(0, x);
         const py = Math.max(0, y);
+        const flippedX = canvas.width - px - width;
 
+        ctx.save();
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
         ctx.fillStyle = "rgba(0,0,0,0.6)";
-        ctx.fillRect(px, py, width, height);
+        ctx.fillRect(flippedX, py, width, height);
         ctx.fillStyle = color;
         lines.forEach((line, idx) => {
-          ctx.fillText(line, px + pad, py + pad + 16 + idx * lineH);
+          ctx.fillText(line, flippedX + pad, py + pad + 16 + idx * lineH);
         });
+        ctx.restore();
       }
 
       function drawBox(box, stroke = "#33ff44") {
@@ -478,15 +577,24 @@
 
       window.addEventListener("resize", resizeCanvasToVideo);
       document.getElementById("startBtn").addEventListener("click", start);
+      document.getElementById("fullscreenBtn").addEventListener("click", toggleFullscreenPreview);
+      document.addEventListener("fullscreenchange", updateFullscreenButtonLabel);
+      document.addEventListener("webkitfullscreenchange", updateFullscreenButtonLabel);
+      document.addEventListener("mozfullscreenchange", updateFullscreenButtonLabel);
+      document.addEventListener("MSFullscreenChange", updateFullscreenButtonLabel);
+      updateFullscreenButtonLabel();
     </script>
   </head>
   <body>
     <main class="app">
       <div class="toolbar">
-        <button id="startBtn" type="button">Start Camera</button>
+        <div class="toolbar-actions">
+          <button id="startBtn" type="button">Start Camera</button>
+          <button id="fullscreenBtn" type="button">Fullscreen</button>
+        </div>
         <div id="status" class="status">Tap Start Camera</div>
       </div>
-      <section class="stage">
+      <section id="previewStage" class="stage">
         <video id="webcam" playsinline muted></video>
         <canvas id="overlay"></canvas>
       </section>
