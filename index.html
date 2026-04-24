@@ -121,18 +121,20 @@
         statusEl().textContent = msg;
       }
 
+      function isPreviewFullscreen() {
+        return Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+      }
+
       function updateFullscreenButtonLabel() {
         const btn = document.getElementById("fullscreenBtn");
         if (!btn) return;
-        const isFullscreen = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
-        btn.textContent = isFullscreen ? "Exit Fullscreen" : "Fullscreen";
+        btn.textContent = isPreviewFullscreen() ? "Exit Fullscreen" : "Fullscreen";
       }
 
       async function toggleFullscreenPreview() {
         const stage = document.getElementById("previewStage");
         try {
-          const inFullscreen = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
-          if (inFullscreen) {
+          if (isPreviewFullscreen()) {
             if (document.exitFullscreen) {
               await document.exitFullscreen();
             } else if (document.webkitExitFullscreen) {
@@ -148,8 +150,6 @@
         } catch (err) {
           console.error("Fullscreen toggle failed:", err);
           setStatus("Unable to toggle fullscreen.");
-        } finally {
-          updateFullscreenButtonLabel();
         }
       }
 
@@ -524,6 +524,7 @@
       document.getElementById("fullscreenBtn").addEventListener("click", toggleFullscreenPreview);
       document.addEventListener("fullscreenchange", updateFullscreenButtonLabel);
       document.addEventListener("webkitfullscreenchange", updateFullscreenButtonLabel);
+      updateFullscreenButtonLabel();
     </script>
   </head>
   <body>
