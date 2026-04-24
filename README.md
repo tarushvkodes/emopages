@@ -37,7 +37,9 @@ This repository uses a static `index.html`, so it can be served directly by GitH
 ## Performance behavior
 
 - Adaptive camera resolution by device class
-- Frame pacing to prevent thermal/CPU runaway
+- Full-FPS preview rendering on `requestAnimationFrame` (render loop never waits on ML)
+- Decoupled ML cadence: face boxes update more often, age/emotion refreshes less often
+- Non-blocking inference backpressure (skip new inference while a prior pass is still running)
 - Tuned face/hand detection intervals
 - Detection caps to keep low-power hardware responsive
 

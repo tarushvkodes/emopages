@@ -101,13 +101,15 @@
       let nextFaceId = 1;
       let nextHandId = 1;
       let lastFaceAt = 0;
+      let lastFaceAttrAt = 0;
       let lastHandAt = 0;
       let cachedFaces = [];
       let cachedHands = [];
       let perfProfile = null;
-      let lastRenderAt = 0;
       let faceDetectorOptions = null;
       let maxFaces = 8;
+      let faceInferenceRunning = false;
+      let handInferenceRunning = false;
 
       function setStatus(msg) {
         statusEl().textContent = msg;
@@ -126,9 +128,10 @@
             name: "low-power",
             cameraWidth: 640,
             cameraHeight: 480,
-            renderIntervalMs: 50,
-            faceIntervalMs: 320,
-            handIntervalMs: 160,
+            cameraFps: 30,
+            faceIntervalMs: 220,
+            faceAttrIntervalMs: 1400,
+            handIntervalMs: 180,
             faceInputSize: 224,
             faceScoreThreshold: 0.5,
             maxFaces: 6,
@@ -141,9 +144,10 @@
             name: "high-performance",
             cameraWidth: 1280,
             cameraHeight: 720,
-            renderIntervalMs: 33,
-            faceIntervalMs: 170,
-            handIntervalMs: 90,
+            cameraFps: 60,
+            faceIntervalMs: 120,
+            faceAttrIntervalMs: 800,
+            handIntervalMs: 100,
             faceInputSize: 320,
             faceScoreThreshold: 0.45,
             maxFaces: 12,
@@ -155,9 +159,10 @@
           name: "balanced",
           cameraWidth: 960,
           cameraHeight: 540,
-          renderIntervalMs: 40,
-          faceIntervalMs: 220,
-          handIntervalMs: 120,
+          cameraFps: 60,
+          faceIntervalMs: 150,
+          faceAttrIntervalMs: 1000,
+          handIntervalMs: 130,
           faceInputSize: 256,
           faceScoreThreshold: 0.48,
           maxFaces: 8,
@@ -239,12 +244,20 @@
           }
           if (bestIdx >= 0 && bestIou > 0.15) {
             usedPrev.add(bestIdx);
-            result.push({ ...det, id: prevTracks[bestIdx].id });
+            result.push({ ...prevTracks[bestIdx], ...det, id: prevTracks[bestIdx].id });
           } else {
             result.push({ ...det, id: nextIdRef.value++ });
           }
         }
         return result;
+      }
+
+      function prettyAge(age) {
+        return Number.isFinite(age) ? ageRange(age) : "...";
+      }
+
+      function prettyEmotion(emotion) {
+        return emotion || "...";
       }
 
       function drawLabel(x, y, lines, color = "#fff") {
@@ -289,24 +302,43 @@
       async function detectFaces(nowMs) {
         if (nowMs - lastFaceAt < perfProfile.faceIntervalMs) return cachedFaces;
         lastFaceAt = nowMs;
-        const detections = await faceapi
-          .detectAllFaces(video, faceDetectorOptions)
-          .withAgeAndGender()
-          .withFaceExpressions();
+        const shouldRefreshAttributes = nowMs - lastFaceAttrAt >= perfProfile.faceAttrIntervalMs || faceTracks.length === 0;
+        let prepared = [];
 
-        const prepared = detections
-          .sort((a, b) => (b.detection.score || 0) - (a.detection.score || 0))
-          .slice(0, maxFaces)
-          .map((d) => ({
-          box: {
-            x: d.detection.box.x,
-            y: d.detection.box.y,
-            w: d.detection.box.width,
-            h: d.detection.box.height
-          },
-          age: d.age,
-          emotion: bestEmotion(d.expressions)
-          }));
+        if (shouldRefreshAttributes) {
+          const detections = await faceapi
+            .detectAllFaces(video, faceDetectorOptions)
+            .withAgeAndGender()
+            .withFaceExpressions();
+          lastFaceAttrAt = nowMs;
+          prepared = detections
+            .sort((a, b) => (b.detection.score || 0) - (a.detection.score || 0))
+            .slice(0, maxFaces)
+            .map((d) => ({
+              box: {
+                x: d.detection.box.x,
+                y: d.detection.box.y,
+                w: d.detection.box.width,
+                h: d.detection.box.height
+              },
+              age: d.age,
+              emotion: bestEmotion(d.expressions)
+            }));
+        } else {
+          const detections = await faceapi.detectAllFaces(video, faceDetectorOptions);
+          prepared = detections
+            .sort((a, b) => (b.score || 0) - (a.score || 0))
+            .slice(0, maxFaces)
+            .map((d) => ({
+              box: {
+                x: d.box.x,
+                y: d.box.y,
+                w: d.box.width,
+                h: d.box.height
+              }
+            }));
+        }
+
         faceTracks = trackDetections(prepared, faceTracks, {
           get value() {
             return nextFaceId;
@@ -364,8 +396,8 @@
             face.box.x,
             face.box.y + face.box.h + 6,
             perfProfile.compactLabels
-              ? [`Age: ${ageRange(face.age)}`, `Mood: ${face.emotion}`]
-              : [`Face #${face.id}`, `Age: ${ageRange(face.age)}`, `Mood: ${face.emotion}`],
+              ? [`Age: ${prettyAge(face.age)}`, `Mood: ${prettyEmotion(face.emotion)}`]
+              : [`Face #${face.id}`, `Age: ${prettyAge(face.age)}`, `Mood: ${prettyEmotion(face.emotion)}`],
             "#ffffff"
           );
         }
@@ -383,17 +415,31 @@
         }
       }
 
-      async function renderLoop() {
+      function kickInference(now) {
+        if (!faceInferenceRunning && now - lastFaceAt >= perfProfile.faceIntervalMs) {
+          faceInferenceRunning = true;
+          detectFaces(now)
+            .catch((err) => console.error("Face inference failed:", err))
+            .finally(() => {
+              faceInferenceRunning = false;
+            });
+        }
+
+        if (!handInferenceRunning && now - lastHandAt >= perfProfile.handIntervalMs) {
+          handInferenceRunning = true;
+          detectHands(now)
+            .catch((err) => console.error("Hand inference failed:", err))
+            .finally(() => {
+              handInferenceRunning = false;
+            });
+        }
+      }
+
+      function renderLoop() {
         if (!processing || !videoReady) return;
         const now = performance.now();
-        if (now - lastRenderAt < perfProfile.renderIntervalMs) {
-          rafId = requestAnimationFrame(renderLoop);
-          return;
-        }
-        lastRenderAt = now;
-        const faces = await detectFaces(now);
-        const hands = await detectHands(now);
-        drawScene(faces, hands);
+        kickInference(now);
+        drawScene(cachedFaces, cachedHands);
         rafId = requestAnimationFrame(renderLoop);
       }
 
@@ -410,7 +456,8 @@
             video: {
               facingMode: "user",
               width: { ideal: perfProfile.cameraWidth },
-              height: { ideal: perfProfile.cameraHeight }
+              height: { ideal: perfProfile.cameraHeight },
+              frameRate: { ideal: perfProfile.cameraFps, max: perfProfile.cameraFps }
             },
             audio: false
           });
@@ -419,7 +466,7 @@
           resizeCanvasToVideo();
           videoReady = true;
           await loadModels();
-          setStatus(`Running detection (${perfProfile.name})...`);
+          setStatus(`Running full-FPS preview (${perfProfile.name}); age/mood updates are decoupled for smoothness.`);
           processing = true;
           if (rafId) cancelAnimationFrame(rafId);
           rafId = requestAnimationFrame(renderLoop);
