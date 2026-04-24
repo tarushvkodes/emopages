@@ -121,8 +121,58 @@
         statusEl().textContent = msg;
       }
 
+      function getFullscreenElement() {
+        return (
+          document.fullscreenElement ||
+          document.webkitFullscreenElement ||
+          document.mozFullScreenElement ||
+          document.msFullscreenElement ||
+          null
+        );
+      }
+
       function isPreviewFullscreen() {
-        return Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+        return Boolean(getFullscreenElement());
+      }
+
+      async function requestPreviewFullscreen(stage) {
+        if (stage.requestFullscreen) {
+          await stage.requestFullscreen();
+          return true;
+        }
+        if (stage.webkitRequestFullscreen) {
+          await Promise.resolve(stage.webkitRequestFullscreen());
+          return true;
+        }
+        if (stage.mozRequestFullScreen) {
+          await Promise.resolve(stage.mozRequestFullScreen());
+          return true;
+        }
+        if (stage.msRequestFullscreen) {
+          await Promise.resolve(stage.msRequestFullscreen());
+          return true;
+        }
+        return false;
+      }
+
+      async function exitPreviewFullscreen() {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+          return true;
+        }
+        if (document.webkitExitFullscreen) {
+          await Promise.resolve(document.webkitExitFullscreen());
+          return true;
+        }
+        if (document.mozCancelFullScreen) {
+          await Promise.resolve(document.mozCancelFullScreen());
+          return true;
+        }
+        if (document.msExitFullscreen) {
+          await Promise.resolve(document.msExitFullscreen());
+          return true;
+        }
+        return false;
       }
 
       function updateFullscreenButtonLabel() {
@@ -135,17 +185,15 @@
         const stage = document.getElementById("previewStage");
         try {
           if (isPreviewFullscreen()) {
-            if (document.exitFullscreen) {
-              await document.exitFullscreen();
-            } else if (document.webkitExitFullscreen) {
-              document.webkitExitFullscreen();
+            const exited = await exitPreviewFullscreen();
+            if (!exited) {
+              setStatus("Fullscreen is not supported in this browser.");
             }
-          } else if (stage.requestFullscreen) {
-            await stage.requestFullscreen();
-          } else if (stage.webkitRequestFullscreen) {
-            stage.webkitRequestFullscreen();
           } else {
-            setStatus("Fullscreen is not supported in this browser.");
+            const entered = await requestPreviewFullscreen(stage);
+            if (!entered) {
+              setStatus("Fullscreen is not supported in this browser.");
+            }
           }
         } catch (err) {
           console.error("Fullscreen toggle failed:", err);
@@ -524,6 +572,8 @@
       document.getElementById("fullscreenBtn").addEventListener("click", toggleFullscreenPreview);
       document.addEventListener("fullscreenchange", updateFullscreenButtonLabel);
       document.addEventListener("webkitfullscreenchange", updateFullscreenButtonLabel);
+      document.addEventListener("mozfullscreenchange", updateFullscreenButtonLabel);
+      document.addEventListener("MSFullscreenChange", updateFullscreenButtonLabel);
       updateFullscreenButtonLabel();
     </script>
   </head>
