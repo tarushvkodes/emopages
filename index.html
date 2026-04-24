@@ -268,13 +268,18 @@
         const height = lines.length * lineH + pad * 2;
         const px = Math.max(0, x);
         const py = Math.max(0, y);
+        const mirroredX = canvas.width - px - width;
 
+        ctx.save();
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
         ctx.fillStyle = "rgba(0,0,0,0.6)";
-        ctx.fillRect(px, py, width, height);
+        ctx.fillRect(mirroredX, py, width, height);
         ctx.fillStyle = color;
         lines.forEach((line, idx) => {
-          ctx.fillText(line, px + pad, py + pad + 16 + idx * lineH);
+          ctx.fillText(line, mirroredX + pad, py + pad + 16 + idx * lineH);
         });
+        ctx.restore();
       }
 
       function drawBox(box, stroke = "#33ff44") {
