@@ -145,15 +145,15 @@
           return true;
         }
         if (stage.webkitRequestFullscreen) {
-          await Promise.resolve(stage.webkitRequestFullscreen());
+          stage.webkitRequestFullscreen();
           return true;
         }
         if (stage.mozRequestFullScreen) {
-          await Promise.resolve(stage.mozRequestFullScreen());
+          stage.mozRequestFullScreen();
           return true;
         }
         if (stage.msRequestFullscreen) {
-          await Promise.resolve(stage.msRequestFullscreen());
+          stage.msRequestFullscreen();
           return true;
         }
         return false;
@@ -165,15 +165,15 @@
           return true;
         }
         if (document.webkitExitFullscreen) {
-          await Promise.resolve(document.webkitExitFullscreen());
+          document.webkitExitFullscreen();
           return true;
         }
         if (document.mozCancelFullScreen) {
-          await Promise.resolve(document.mozCancelFullScreen());
+          document.mozCancelFullScreen();
           return true;
         }
         if (document.msExitFullscreen) {
-          await Promise.resolve(document.msExitFullscreen());
+          document.msExitFullscreen();
           return true;
         }
         return false;
@@ -581,6 +581,7 @@
       document.addEventListener("fullscreenchange", updateFullscreenButtonLabel);
       document.addEventListener("webkitfullscreenchange", updateFullscreenButtonLabel);
       document.addEventListener("mozfullscreenchange", updateFullscreenButtonLabel);
+      document.addEventListener("MSFullscreenChange", updateFullscreenButtonLabel);
       document.addEventListener("msfullscreenchange", updateFullscreenButtonLabel);
       updateFullscreenButtonLabel();
     </script>
